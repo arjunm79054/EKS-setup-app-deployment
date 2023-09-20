@@ -1,0 +1,141 @@
+prerequisites
+kubectl – A command line tool for working with Kubernetes clusters. For more information, see Installing or updating kubectl.
+
+eksctl – A command line tool for working with EKS clusters that automates many individual tasks. For more information, see Installing or updating.
+
+AWS CLI – A command line tool for working with AWS services, including Amazon EKS. For more information, see Installing, updating, and uninstalling the AWS CLI in the AWS Command Line Interface User Guide. After installing the AWS CLI, we recommend that you also configure it. For more information, see Quick configuration with aws configure in the AWS Command Line Interface User Guide.
+
+
+Install EKS
+Please follow the prerequisites doc before this.
+
+Install using Fargate
+eksctl create cluster --name demo-cluster --region us-east-1 --fargate
+Delete the cluster
+eksctl delete cluster --name demo-cluster --region us-east-1
+
+update the kubeconfig file to access everything via kubectl command line---
+
+aws eks update-kubeconfig --name arjun-cluster --region us-east-1
+
+Deploying the app.........................>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+1- create a fargate profile in a namespace.
+
+eksctl create fargateprofile \
+    --cluster demo-cluster \
+    --region us-east-1 \
+    --name alb-sample-app \
+    --namespace game-2048
+
+
+2- now take the application from github to eks or write the ingress,deployment,and service configurations and execute  it with below command ..(ingress-service-deployment.yml)....>
+
+kubectl apply -f ingress-service-deployment.yaml
+
+3- check the pods and service.....>>
+
+kubectl get pods -n game-2048
+kubectl get pods -n game-2048 -w
+
+to check the service state..............>>>
+
+kubectl get svc -n game-2048
+
+till now anybody can access the pod using node ip address followed by port no but outside user cant access it. 
+to access the pod by outside the aws user, we have created an ingress.
+
+kubectl get ingress -n game-2048
+
+here, ingress has created but address isn't created because there is no load balancer.
+
+so it needs to create INGRESS CONTROLLER , ingress controller will read the ingress resource (ingress-2048) and it will 
+create AND configure (will open port automatically) the  LOAD BALANCER for it.
+
+3- DEPOLY INGRESS CONTROLLER---
+to deploy ALB(application load balancer) it needs to configure IAM OIDC provider on aws....>>
+
+google it for official documentation....(commands to configure IAM OIDC PROVIDER)..>>folllow aws official documentation.
+
+1-Create an IAM OIDC identity provider for your cluster with the following command.
+
+eksctl utils associate-iam-oidc-provider --cluster cluster_name --approve   (identity provider will be intergrated)
+
+2- install ALB CONTROLLER- in kubernetes any controller is just like a POD , so we need to grant access for this pod to access AWS services 
+such as ALB.
+
+4-- Create an IAM policy.
+
+a- Download an IAM policy for the AWS Load Balancer Controller that allows it to make calls to AWS APIs on your behalf.
+
+ curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
+
+b- Create an IAM policy using the policy downloaded in the previous step.
+
+aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document file://iam_policy.json
+
+CREATE IAM ROLE---
+
+Now Create an IAM role. Create a Kubernetes service account named aws-load-balancer-controller in the kube-system namespace for the AWS Load Balancer Controller 
+and annotate the Kubernetes service account with the name of the IAM role.
+
+Replace my-cluster with the name of your cluster, 111122223333 with your account ID
+
+eksctl create iamserviceaccount \
+  --cluster=my-cluster \
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --attach-policy-arn=arn:aws:iam::111122223333:policy/AWSLoadBalancerControllerIAMPolicy \
+  --approve
+
+5-- Install the AWS (ALB) Load Balancer Controller using Helm V3: this HELM chart will create the actual controller  and it will use the service account for
+	running the PODS.
+a- Update your local repo to make sure that you have the most recent charts.
+
+    helm repo update eks
+b- Install the AWS Load Balancer Controller via HELM-CHART Replace my-cluster with the name of your cluster and set your region,vpcId from cluster info.
+
+	 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  		 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=my-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller
+  --set region=region-code
+  --set vpcId=vpc-xxxxxxxx
+
+
+AWS LOAD BALANCER CONTROLLER INSTALLED!
+
+6- Verify that the controller is installed or not.
+
+  
+  kubectl get deploy -n kube-system 
+  kubectl get deployment -n kube-system aws-load-balancer-controller
+ 
+to check pods status-
+
+kubectl get pods -n kube-system -w
+
+7 -- to edit or troubleshoot deployments we can run----->>
+
+kubectl edit deploy/aws-load-balancer-controller -n kube-system  
+
+8- now go to ALB, EC2 aws console ,check there an LOAD BAlANCER has been created. or run--
+
+ kubectl get ingress -n game-2048  (address has been created)
+
+open browser ---- http://url   APP is running
+
+ 
+
+
+
+
+
+
+
+
